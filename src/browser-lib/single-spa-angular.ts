@@ -10,6 +10,7 @@ const defaultOpts = {
   template: null,
   // optional opts
   Router: undefined,
+  NavigationStart: undefined,
   domElementGetter: undefined, // only optional if you provide a domElementGetter as a custom prop
   AnimationEngine: undefined,
   updateFunction: () => Promise.resolve()
@@ -105,13 +106,22 @@ function mount(opts, props) {
           `);
         }
 
+        if (opts.Router && !opts.NavigationStart) {
+          throw new Error(`single-spa-angular must be passed the NavigationStart option`);
+        }
+
         const ngZone = module.injector.get(opts.NgZone);
 
         if (singleSpaPlatformLocation !== null) {
+          const subscription = skipLocationChangeOnNonImperativeRoutingTriggers(module, opts);
+
           singleSpaPlatformLocation.setNgZone(ngZone);
           // Cleanup resources, especially remove event listeners thus they will not be added
           // twice when application gets bootstrapped the second time.
-          module.onDestroy(() => singleSpaPlatformLocation.destroy());
+          module.onDestroy(() => { 
+            subscription.unsubscribe();
+            singleSpaPlatformLocation.destroy();
+          });
         }
 
         opts.bootstrappedNgZone = ngZone;
@@ -121,6 +131,24 @@ function mount(opts, props) {
         return module;
       });
     });
+}
+
+function skipLocationChangeOnNonImperativeRoutingTriggers(
+  module: any,
+  opts: SingleSpaAngularOpts
+) {
+  const router = module.injector.get(opts.Router);
+
+
+  return router.events.subscribe((event: any) => {
+    if (event instanceof opts.NavigationStart!) { 
+      const currentNavigation = router.getCurrentNavigation();
+      if (currentNavigation.trigger !== 'imperative') {
+        currentNavigation.extras.skipLocationChange = true;
+        currentNavigation.extras.replaceUrl = false;
+      }
+    }
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -207,6 +235,7 @@ interface SingleSpaAngularOpts {
   updateFunction?(props: AppProps): Promise<any>;
   template: string;
   Router?: any;
+  NavigationStart?: any;
   domElementGetter?(): HTMLElement;
   AnimationEngine?: any;
 }
